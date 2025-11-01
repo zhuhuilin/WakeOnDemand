@@ -17,14 +17,22 @@ class PingService: ObservableObject {
     @Published var machineStatuses: [UUID: Bool] = [:]
     @Published var machineLastChecked: [UUID: Date] = [:]
     @Published var checkingMachines: Set<UUID> = [] // Track which machines are being checked
-    
+
+    // Expose timer metadata for UI countdowns
+    @Published var nextCheckDate: Date? = nil
+    @Published var currentInterval: TimeInterval? = nil
+    @Published var pendingInterval: TimeInterval? = nil
+
     private var connection: NWConnection?
     private var timer: Timer?
     private var statusTimer: Timer?
     private var attempts = 0
     private let maxAttempts = 30
     private let pingInterval: TimeInterval = 2.0
-    
+
+    // When user changes the poll interval we set pendingInterval (published); it will be applied after the next scheduled check
+    // private var pendingInterval: TimeInterval? = nil
+
     func startPinging(host: String, port: Int, completion: @escaping (Bool) -> Void) {
         reset()
         updateStatusMessage("Sending magic packet...")
@@ -85,20 +93,56 @@ class PingService: ObservableObject {
         }
     }
     
-    func startPeriodicStatusCheck(machines: [Machine], interval: TimeInterval = 120.0) {
-        stopPeriodicStatusCheck()
-        
-        // Check status immediately for all machines
-        checkAllMachinesStatus(machines: machines)
-        
-        // Then set up periodic checking
+    // Helper to schedule the single-shot status timer
+    private func scheduleStatusTimer(machines: [Machine], interval: TimeInterval) {
         DispatchQueue.main.async {
-            self.statusTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            self.statusTimer?.invalidate()
+            self.currentInterval = interval
+            self.nextCheckDate = Date().addingTimeInterval(interval)
+            // Use non-repeating timer and reschedule each time so we can apply pendingInterval after the next run
+            self.statusTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
                 self.checkAllMachinesStatus(machines: machines)
+                // After triggering the scheduled check, apply pending interval if present; otherwise keep current
+                if let pending = self.pendingInterval {
+                    self.pendingInterval = nil
+                    self.scheduleStatusTimer(machines: machines, interval: pending)
+                } else if let current = self.currentInterval {
+                    // schedule next using current interval
+                    self.scheduleStatusTimer(machines: machines, interval: current)
+                }
             }
         }
     }
-    
+
+    func startPeriodicStatusCheck(machines: [Machine], interval: TimeInterval = 120.0) {
+        stopPeriodicStatusCheck()
+
+        // Set current interval and clear any pending interval
+        currentInterval = interval
+        pendingInterval = nil
+
+        // Check status immediately for all machines
+        checkAllMachinesStatus(machines: machines)
+
+        // Then schedule the next check after `interval` seconds
+        scheduleStatusTimer(machines: machines, interval: interval)
+    }
+
+    /// Reset the periodic status timer without performing an immediate check.
+    /// Use this when you want to restart the countdown after an explicit manual refresh.
+    func resetPeriodicStatusCheck(machines: [Machine], interval: TimeInterval = 120.0) {
+        stopPeriodicStatusCheck()
+        currentInterval = interval
+        pendingInterval = nil
+        scheduleStatusTimer(machines: machines, interval: interval)
+    }
+
+    /// Set a pending interval which will be applied after the next scheduled check fires.
+    func setPendingInterval(_ interval: TimeInterval) {
+        pendingInterval = interval
+    }
+
     func checkAllMachinesStatus(machines: [Machine]) {
         // Use DispatchGroup to check all machines concurrently
         let group = DispatchGroup()
@@ -119,6 +163,8 @@ class PingService: ObservableObject {
         DispatchQueue.main.async {
             self.statusTimer?.invalidate()
             self.statusTimer = nil
+            self.nextCheckDate = nil
+            self.currentInterval = nil
         }
     }
     

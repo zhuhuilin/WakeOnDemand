@@ -20,43 +20,33 @@ struct MachineTableView: View {
         Table(machines, selection: $selectedMachineIDs, sortOrder: $sortOrder) {
             // Name column
             TableColumn("Name", value: \.name)
-                .width(min: 100, max: 200)
-            
+                .width(min: 90, max: 160)
+
             // IP Address column
             TableColumn("IP Address", value: \.ipv4Address)
-                .width(min: 100, max: 150)
-            
+                .width(min: 100, max: 140)
+
             // MAC Address column
             TableColumn("MAC Address", value: \.macAddress)
-                .width(min: 120, max: 180)
-            
-            // Description column
-            TableColumn("Description", value: \.description)
-                .width(min: 100, max: 200)
-            
-            // Ping Port column
-            TableColumn("Ping Port") { machine in
-                Text("\(machine.pingPort)")
-            }
-            .width(80)
-            
+                .width(min: 120, max: 160)
+
             // Status column
             TableColumn("Status") { machine in
                 statusView(for: machine)
             }
-            .width(90)
-            
+            .width(70)
+
             // Last Checked column
             TableColumn("Last Checked") { machine in
                 lastCheckedView(for: machine)
             }
-            .width(min: 120, max: 180)
+            .width(min: 100, max: 140)
              
              // Action column
              TableColumn("Action") { machine in
                  actionButton(for: machine)
              }
-             .width(80)
+             .width(70)
          }
      }
     

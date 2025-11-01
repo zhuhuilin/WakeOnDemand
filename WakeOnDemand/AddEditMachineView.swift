@@ -28,6 +28,10 @@ struct AddEditMachineView: View {
     @State private var ipModified = false
     @State private var maskModified = false
     // removed manual drag state; window is now a normal NSWindow with titlebar
+    // Autosave debounce and UI indicator
+    @State private var autosaveWorkItem: DispatchWorkItem? = nil
+    @State private var isAutosaveIndicatorVisible: Bool = false
+    private let autosaveDelay: TimeInterval = 0.6
 
     init(machines: Binding<[Machine]>, isPresented: Binding<Bool>, editingMachine: Machine? = nil) {
         self._machines = machines
@@ -56,23 +60,24 @@ struct AddEditMachineView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header removed — window title bar already displays Add/Edit
-            // Main content
-            VStack(spacing: 16) {
-                Form {
-                    Section(header: Text("Machine Information")) {
-                        TextField("Name", text: $name)
-                        TextField("MAC Address", text: $macAddress)
-                        TextField("Description", text: $description)
-                    }
-                    
-                    Section(header: Text("Network Configuration")) {
-                        TextField("IPv4 Address", text: $ipv4Address)
+        VStack(spacing: 6) { // tightened spacing
+            // Form rows with left labels
+            VStack(alignment: .leading, spacing: 6) { // tightened spacing
+                fieldRow(label: "Name") {
+                    TextField("", text: $name)
+                }
+
+                fieldRow(label: "MAC Address") {
+                    TextField("", text: $macAddress)
+                }
+
+                fieldRow(label: "IPv4 Address") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        TextField("", text: $ipv4Address)
                             .onChange(of: ipv4Address) { newValue in
                                 ipModified = true
                                 showIPError = !ipHelper.isValidIPAddress(newValue) && !newValue.isEmpty
-                                
+
                                 // Auto-calculate mask and broadcast when IP changes
                                 if ipHelper.isValidIPAddress(newValue) && !maskModified {
                                     if let settings = ipHelper.autoCalculateNetworkSettings(ip: newValue) {
@@ -80,131 +85,157 @@ struct AddEditMachineView: View {
                                         broadcastAddress = settings.broadcast
                                     }
                                 }
-                                
+
                                 // Validate broadcast when IP changes
                                 if !broadcastAddress.isEmpty {
                                     showBroadcastError = !ipHelper.isValidBroadcast(ip: newValue, mask: mask, broadcast: broadcastAddress)
                                 }
-                                
-                                // If editing an existing machine and network fields are valid, persist changes
+
+                                // Debounced autosave if editing
                                 if let _ = editingMachine,
                                    ipHelper.isValidIPAddress(newValue),
                                    ipHelper.isValidSubnetMask(mask),
                                    ipHelper.isValidBroadcast(ip: newValue, mask: mask, broadcast: broadcastAddress) {
-                                    syncEditingMachineFields()
+                                    scheduleAutosaveIfEditing()
                                 }
                             }
-                        
+
                         if showIPError {
                             Text("Invalid IP address format")
                                 .foregroundColor(.red)
                                 .font(.caption)
                         }
-                        
-                        TextField("Subnet Mask", text: $mask)
+                    }
+                }
+
+                fieldRow(label: "Subnet Mask") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        TextField("", text: $mask)
                             .onChange(of: mask) { newValue in
                                 maskModified = true
                                 showMaskError = !ipHelper.isValidSubnetMask(newValue) && !newValue.isEmpty
-                                
+
                                 // Auto-calculate broadcast when mask changes
                                 if ipHelper.isValidIPAddress(ipv4Address) && ipHelper.isValidSubnetMask(newValue) {
                                     if let broadcast = ipHelper.calculateBroadcast(ip: ipv4Address, mask: newValue) {
                                         broadcastAddress = broadcast
                                     }
                                 }
-                                
+
                                 // Validate broadcast when mask changes
                                 if !broadcastAddress.isEmpty {
                                     showBroadcastError = !ipHelper.isValidBroadcast(ip: ipv4Address, mask: newValue, broadcast: broadcastAddress)
                                 }
-                                
-                                // Persist if editing and validations are satisfied
+
+                                // Debounced autosave if editing
                                 if let _ = editingMachine,
                                    ipHelper.isValidIPAddress(ipv4Address),
                                    ipHelper.isValidSubnetMask(newValue),
                                    ipHelper.isValidBroadcast(ip: ipv4Address, mask: newValue, broadcast: broadcastAddress) {
-                                    syncEditingMachineFields()
+                                    scheduleAutosaveIfEditing()
                                 }
                             }
-                        
+
                         if showMaskError {
                             Text("Invalid subnet mask")
                                 .foregroundColor(.red)
                                 .font(.caption)
                         }
-                        
-                        TextField("Broadcast Address", text: $broadcastAddress)
+                    }
+                }
+
+                fieldRow(label: "Broadcast") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        TextField("", text: $broadcastAddress)
                             .onChange(of: broadcastAddress) { newValue in
                                 showBroadcastError = !ipHelper.isValidBroadcast(ip: ipv4Address, mask: mask, broadcast: newValue) && !newValue.isEmpty
-                                
-                                // Persist if editing and validations are satisfied
+
+                                // Debounced autosave if editing
                                 if let _ = editingMachine,
                                    ipHelper.isValidIPAddress(ipv4Address),
                                    ipHelper.isValidSubnetMask(mask),
                                    ipHelper.isValidBroadcast(ip: ipv4Address, mask: mask, broadcast: newValue) {
-                                    syncEditingMachineFields()
+                                    scheduleAutosaveIfEditing()
                                 }
                             }
-                        
+
                         if showBroadcastError {
                             Text("Broadcast address doesn't match IP and subnet mask")
                                 .foregroundColor(.red)
                                 .font(.caption)
                         }
-                        
-                        HStack {
-                            Button("Calculate Broadcast") {
-                                calculateBroadcast()
-                            }
-                            .disabled(!ipHelper.isValidIPAddress(ipv4Address) || !ipHelper.isValidSubnetMask(mask))
-                            
-                            Spacer()
-                            
-                            Button("Use Defaults") {
-                                useDefaults()
-                            }
-                        }
-                    }
-                    
-                    Section(header: Text("Wake Settings")) {
-                        TextField("Ping Port", text: $pingPort)
-                            .help("Port to check for machine availability (e.g., 22 for SSH, 3389 for RDP)")
                     }
                 }
-                .formStyle(.grouped)
-                
-                HStack {
-                    Button("Cancel") {
-                        isPresented = false
-                    }
-                    .keyboardShortcut(.cancelAction)
-                    
-                    Spacer()
-                    
-                    Button(editingMachine == nil ? "Add" : "Save") {
-                        saveMachine()
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!isFormValid)
+
+                // Description (optional)
+                fieldRow(label: "Description") {
+                    TextField("", text: $description)
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 8)
+
+                // Ping Port
+                fieldRow(label: "Ping Port") {
+                    TextField("", text: $pingPort)
+                        .frame(maxWidth: 120)
+                }
             }
-            .padding(.top, 8)
+
+            HStack {
+                Button("Cancel") {
+                    cancelAutosave()
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button(editingMachine == nil ? "Add" : "Save") {
+                    saveMachine()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!isFormValid)
+            }
+            .padding(.horizontal, 10)
+
+            // Autosave indicator
+            if isAutosaveIndicatorVisible {
+                HStack {
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Autosaved")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 4)
+                    Spacer()
+                }
+                .transition(.opacity)
+            }
         }
-        // Use a flexible minimum height so the window can be resized and there is no forced blank space
-        .frame(minWidth: 500, minHeight: 420)
+        // Use a tighter minimum height so there's no blank top/bottom
+        .frame(minWidth: 500, minHeight: 380)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .onDisappear {
+            // Ensure any pending autosave is cancelled when the view/window closes
+            cancelAutosave()
+        }
     }
     
     private var isFormValid: Bool {
-        // Require Name, MAC, IPv4, Broadcast, and Ping Port to be non-empty.
-        // Keep a numeric check for ping port.
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !macAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !ipv4Address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !broadcastAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !pingPort.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        Int(pingPort) != nil
+        // Name, MAC, IPv4, Mask, Broadcast, and Ping Port are required and must be valid where applicable.
+        let nonEmptyFields = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !macAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !ipv4Address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !mask.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !broadcastAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !pingPort.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            Int(pingPort) != nil
+
+        let networkValid = ipHelper.isValidIPAddress(ipv4Address) && ipHelper.isValidSubnetMask(mask) && ipHelper.isValidBroadcast(ip: ipv4Address, mask: mask, broadcast: broadcastAddress)
+
+        return nonEmptyFields && networkValid
     }
     
     private func calculateBroadcast() {
@@ -226,6 +257,9 @@ struct AddEditMachineView: View {
     }
     
     private func saveMachine() {
+        // If there's a pending autosave, cancel it to avoid duplicate writes
+        cancelAutosave()
+
         let port = Int(pingPort) ?? 22
         
         let machine: Machine
@@ -287,12 +321,73 @@ struct AddEditMachineView: View {
         saveMachines()
     }
     
+    // Debounced autosave helpers
+    private func scheduleAutosaveIfEditing() {
+        // cancel previous scheduled work
+        autosaveWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem {
+            // Note: `self` is a struct (View). Using `weak` on a struct is invalid.
+            // This work item runs on the main queue, so capturing `self` here is safe.
+            self.syncEditingMachineFields()
+            self.showAutosaveIndicator()
+            // clear the reference
+            DispatchQueue.main.async {
+                self.autosaveWorkItem = nil
+            }
+        }
+
+        autosaveWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + autosaveDelay, execute: workItem)
+    }
+
+    private func showAutosaveIndicator() {
+        DispatchQueue.main.async {
+            withAnimation { self.isAutosaveIndicatorVisible = true }
+            // Hide after a short delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                withAnimation { self.isAutosaveIndicatorVisible = false }
+            }
+        }
+    }
+
+    private func cancelAutosave() {
+        autosaveWorkItem?.cancel()
+        autosaveWorkItem = nil
+    }
+    
     private func saveMachines() {
         do {
             let data = try JSONEncoder().encode(machines)
             UserDefaults.standard.set(data, forKey: "machines")
         } catch {
             print("Failed to save machines: \(error)")
+        }
+    }
+    
+    // Cancel any pending autosave when the view disappears
+    // Attach as view modifier so closing the window cancels pending autosaves
+    // and avoids orphaned scheduled work
+    
+    // Add view lifecycle handlers
+    
+    // Small helper to render a labeled row (label + input on one line)
+    @ViewBuilder
+    private func fieldRow<Content: View>(label: String, @ViewBuilder input: () -> Content) -> some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.callout) // slightly larger than subheadline
+                    .foregroundColor(.secondary)
+                if label != "Description" {
+                    Text("*")
+                        .font(.callout)
+                        .foregroundColor(.red)
+                }
+            }
+            .frame(width: 140, alignment: .leading)
+            input()
+            Spacer()
         }
     }
 }
