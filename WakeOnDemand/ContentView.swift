@@ -151,11 +151,14 @@ struct ContentView: View {
                     .pickerStyle(.menu)
                     .onChange(of: statusInterval) { newValue in
                         UserDefaults.standard.set(newValue, forKey: "statusCheckInterval")
-                        // Do NOT trigger an immediate check. Set as pending interval to take effect after next scheduled check
-                        pingService.setPendingInterval(newValue)
+                        // Restart the countdown immediately to reflect the newly-selected poll interval
+                        // Do NOT trigger an immediate status check; just restart the countdown
+                        pingService.resetPeriodicStatusCheck(machines: machines, interval: newValue)
                     }
 
                     // Countdown indicator to next scheduled automatic check
+                    // reference refreshTick so the view updates every second
+                    EmptyView().id(refreshTick)
                     if let next = pingService.nextCheckDate {
                         // remaining seconds until next check
                         let remainingSeconds = max(0.0, next.timeIntervalSinceNow)
@@ -369,7 +372,7 @@ extension ContentView {
 
         // Create an NSWindow first so we can reference it from the Binding below
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -382,7 +385,7 @@ extension ContentView {
         // Ensure the title is visible (so the window isn't using a hidden titlebar layout)
         window.titleVisibility = .visible
         // Ensure the window can be resized but has a sensible minimum matching the view's min frame
-        window.minSize = NSSize(width: 500, height: 380)
+        window.minSize = NSSize(width: 480, height: 260)
 
         // Create and retain a delegate to observe window close events and persist frame
         let delegate = WindowDelegate(frameUserDefaultsKey: "AddEditWindowFrame")
@@ -419,7 +422,9 @@ extension ContentView {
         }
 
         let hosting = NSHostingController(rootView: AddEditMachineView(machines: $machines, isPresented: isPresentedBinding, editingMachine: editingMachine))
+        // Attach hosting controller; don't manually add the view as a subview. The contentViewController manages layout and resizing.
         window.contentViewController = hosting
+
         window.makeKeyAndOrderFront(nil)
      }
 }

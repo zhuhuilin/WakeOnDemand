@@ -60,9 +60,9 @@ struct AddEditMachineView: View {
     }
     
     var body: some View {
-        VStack(spacing: 6) { // tightened spacing
+        VStack(spacing: 4) { // tightened spacing
             // Form rows with left labels
-            VStack(alignment: .leading, spacing: 6) { // tightened spacing
+            VStack(alignment: .leading, spacing: 4) { // tightened spacing
                 fieldRow(label: "Name") {
                     TextField("", text: $name)
                 }
@@ -194,7 +194,7 @@ struct AddEditMachineView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isFormValid)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
 
             // Autosave indicator
             if isAutosaveIndicatorVisible {
@@ -207,21 +207,21 @@ struct AddEditMachineView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    .padding(.top, 4)
+                    .padding(.top, 2)
                     Spacer()
                 }
                 .transition(.opacity)
             }
         }
-        // Use a tighter minimum height so there's no blank top/bottom
-        .frame(minWidth: 500, minHeight: 380)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .onDisappear {
-            // Ensure any pending autosave is cancelled when the view/window closes
-            cancelAutosave()
-        }
-    }
+        // Use a tighter footprint so there's minimal blank top/bottom
+        .frame(minWidth: 480)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+         .onDisappear {
+             // Ensure any pending autosave is cancelled when the view/window closes
+             cancelAutosave()
+         }
+     }
     
     private var isFormValid: Bool {
         // Name, MAC, IPv4, Mask, Broadcast, and Ping Port are required and must be valid where applicable.
@@ -374,7 +374,7 @@ struct AddEditMachineView: View {
     // Small helper to render a labeled row (label + input on one line)
     @ViewBuilder
     private func fieldRow<Content: View>(label: String, @ViewBuilder input: () -> Content) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             HStack(spacing: 4) {
                 Text(label)
                     .font(.callout) // slightly larger than subheadline
@@ -385,7 +385,7 @@ struct AddEditMachineView: View {
                         .foregroundColor(.red)
                 }
             }
-            .frame(width: 140, alignment: .leading)
+            .frame(width: 120, alignment: .leading)
             input()
             Spacer()
         }
