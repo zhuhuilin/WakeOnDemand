@@ -62,6 +62,12 @@ struct ContentView: View {
         }
         .frame(minWidth: 560, minHeight: 360)
         .navigationTitle("WakeOnDemand")
+        // Set app to terminate when the last window closes
+        .onAppear {
+            NSApplication.shared.setActivationPolicy(.regular)
+            // This ensures the app quits when the main window is closed
+            NSWindow.allowsAutomaticWindowTabbing = false
+        }
         // NOTE: Add/Edit windows are presented as standalone NSWindows so
         // they can be moved and resized. See `openAddEditWindow` below.
         .alert("Waking Up \(currentWakingMachine?.name ?? "Machine")", isPresented: $showingWakeAlert) {
@@ -107,6 +113,12 @@ struct ContentView: View {
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
             // Update tick so countdown/progress recomputes
             refreshTick = Date()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            if let window = notification.object as? NSWindow,
+               window.title == "WakeOnDemand" {
+                NSApplication.shared.terminate(nil)
+            }
         }
     }
 

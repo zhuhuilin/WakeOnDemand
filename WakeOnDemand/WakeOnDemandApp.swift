@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import AppKit
 
 @main
 struct WakeOnDemandApp: App {
+
     var body: some Scene {
         WindowGroup("WakeOnDemand") { // Set the window title here
             ContentView()
